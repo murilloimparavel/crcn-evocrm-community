@@ -1,0 +1,28 @@
+name: Validate submodules
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - name: Check module paths and repository ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config -f .gitmodules --get-regexp '^submodule\..*\.path$' | while read -r _ path; do
+            test -d "$path"
+          done
+          if git config -f .gitmodules --get-regexp '^submodule\..*\.url$' | grep -Ev 'https://github\.com/murilloimparavel/[^ ]+\.git$'; then
+            echo "Every submodule must use a murilloimparavel HTTPS repository URL." >&2
+            exit 1
+          fi
