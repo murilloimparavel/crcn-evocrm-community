@@ -1,33 +1,44 @@
-[submodule "services/evo-auth-service-community"]
-	path = services/evo-auth-service-community
-	url = https://github.com/murilloimparavel/evo-auth-service-community.git
-[submodule "services/evo-ai-crm-community"]
-	path = services/evo-ai-crm-community
-	url = https://github.com/murilloimparavel/evo-ai-crm-community.git
-[submodule "frontend/sofia-central-frontend"]
-	path = frontend/sofia-central-frontend
-	url = https://github.com/murilloimparavel/sofia-central-frontend.git
-[submodule "services/evo-ai-processor-community"]
-	path = services/evo-ai-processor-community
-	url = https://github.com/murilloimparavel/evo-ai-processor-community.git
-[submodule "services/evo-ai-core-service-community"]
-	path = services/evo-ai-core-service-community
-	url = https://github.com/murilloimparavel/evo-ai-core-service-community.git
-[submodule "services/evo-bot-runtime"]
-	path = services/evo-bot-runtime
-	url = https://github.com/murilloimparavel/evo-bot-runtime.git
-[submodule "services/evo-flow-community"]
-	path = services/evo-flow-community
-	url = https://github.com/murilloimparavel/evo-flow-community.git
-[submodule "services/evo-nexus"]
-	path = services/evo-nexus
-	url = https://github.com/murilloimparavel/evo-nexus.git
-[submodule "integrations/evolution-api"]
-	path = integrations/evolution-api
-	url = https://github.com/murilloimparavel/evolution-api.git
-[submodule "integrations/evolution-go"]
-	path = integrations/evolution-go
-	url = https://github.com/murilloimparavel/evolution-go.git
-[submodule "services/crcn-search-api"]
-	path = services/crcn-search-api
-	url = https://github.com/murilloimparavel/crcn-search-api.git
+[submodule "evo-auth-service-community"]
+path = evo-auth-service-community
+url = https://github.com/murilloimparavel/evo-auth-service-community.git
+
+[submodule "evo-ai-crm-community"]
+path = evo-ai-crm-community
+url = https://github.com/murilloimparavel/evo-ai-crm-community.git
+
+[submodule "sofia-central-frontend"]
+path = sofia-central-frontend
+url = https://github.com/murilloimparavel/sofia-central-frontend.git
+
+[submodule "evo-ai-processor-community"]
+path = evo-ai-processor-community
+url = https://github.com/murilloimparavel/evo-ai-processor-community.git
+
+[submodule "evo-ai-core-service-community"]
+path = evo-ai-core-service-community
+url = https://github.com/murilloimparavel/evo-ai-core-service-community.git
+
+[submodule "evo-bot-runtime"]
+path = evo-bot-runtime
+url = https://github.com/murilloimparavel/evo-bot-runtime.git
+
+[submodule "evo-flow-community"]
+path = evo-flow-community
+url = https://github.com/murilloimparavel/evo-flow-community.git
+
+[submodule "evo-nexus"]
+path = evo-nexus
+url = https://github.com/murilloimparavel/evo-nexus.git
+
+[submodule "evolution-api"]
+path = evolution-api
+url = https://github.com/murilloimparavel/evolution-api.git
+
+[submodule "evolution-go"]
+path = evolution-go
+url = https://github.com/murilloimparavel/evolution-go.git
+
+[submodule "crcn-search-api"]
+path = crcn-search-api
+url = https://github.com/murilloimparavel/crcn-search-api.git
+
