@@ -13,7 +13,6 @@ Agregador privado do stack EvoCRM operado pela Central de Reservas Caldas Novas.
 | `evo-ai-core-service-community` | [murilloimparavel/evo-ai-core-service-community](https://github.com/murilloimparavel/evo-ai-core-service-community) |
 | `evo-bot-runtime` | [murilloimparavel/evo-bot-runtime](https://github.com/murilloimparavel/evo-bot-runtime) |
 | `evo-flow-community` | [murilloimparavel/evo-flow-community](https://github.com/murilloimparavel/evo-flow-community) |
-| `evo-nexus` | [murilloimparavel/evo-nexus](https://github.com/murilloimparavel/evo-nexus) |
 | `evolution-api` | [murilloimparavel/evolution-api](https://github.com/murilloimparavel/evolution-api) |
 | `evolution-go` | [murilloimparavel/evolution-go](https://github.com/murilloimparavel/evolution-go) |
 | `crcn-search-api` | [murilloimparavel/crcn-search-api](https://github.com/murilloimparavel/crcn-search-api) |
@@ -41,7 +40,7 @@ git submodule update --remote --merge
 git status --short
 git add .gitmodules evo-auth-service-community evo-ai-crm-community sofia-central-frontend \
   evo-ai-processor-community evo-ai-core-service-community evo-bot-runtime \
-  evo-flow-community evo-nexus evolution-api evolution-go crcn-search-api
+  evo-flow-community evolution-api evolution-go crcn-search-api
 git commit -m "chore: update EvoCRM modules"
 git push
 ```

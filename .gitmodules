@@ -26,10 +26,6 @@ url = https://github.com/murilloimparavel/evo-bot-runtime.git
 path = evo-flow-community
 url = https://github.com/murilloimparavel/evo-flow-community.git
 
-[submodule "evo-nexus"]
-path = evo-nexus
-url = https://github.com/murilloimparavel/evo-nexus.git
-
 [submodule "evolution-api"]
 path = evolution-api
 url = https://github.com/murilloimparavel/evolution-api.git
