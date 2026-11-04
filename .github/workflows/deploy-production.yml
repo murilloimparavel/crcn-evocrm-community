@@ -22,7 +22,7 @@ concurrency:
 jobs:
   preflight:
     name: Validate production release prerequisites
-    if: ${{ inputs.confirm_production == 'deploy' }}
+    if: ${{ inputs.confirm_production == 'deploy' && vars.PRODUCTION_DEPLOY_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     environment: production
     steps:
