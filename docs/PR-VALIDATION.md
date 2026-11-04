@@ -28,14 +28,16 @@ sucesso dos jobs necessários, inclusive lint dos próprios workflows com action
 - Guardas existentes dos módulos continuam separados. Checks condicionais por
   caminhos não foram transformados em requisitos globais de merge.
 - O agregador precisa de `SUBMODULES_SSH_KEYS`, com **somente leitura** dos dez
-  repositórios pessoais. A listagem de nomes dos secrets do agregador retornou
-  vazia nesta sessão. Não reutilizar o token pessoal amplo do `gh` nesse secret.
+  repositórios pessoais. O secret foi configurado com dez deploy keys independentes, cada uma
+  somente de leitura do respectivo módulo. O checkout dos dez commits fixados
+  passou usando esse bundle. Nenhum token pessoal amplo foi armazenado no CI.
   Sem a credencial, o check explica a falha e não aprova silenciosamente.
 - PR de fork sem acesso aos secrets não consegue validar os módulos privados;
   trazer o commit para branch interna revisada. Não usar pull_request_target para
   executar código de PR com credenciais privilegiadas.
-- Os workflows precisam ser revisados e publicados nos respectivos repositórios.
-  A preparação não faz commit/push nem avança os gitlinks do agregador.
+- Os workflows foram publicados em branches codex/pr-validation-20261104
+  com PRs nos onze repositórios. Não houve merge nas branches principais nem
+  avanço dos gitlinks do agregador.
 - Depois da primeira execução real bem-sucedida, configurar a proteção de
   main/develop para exigir o check final da tabela e revisão de PR. A consulta
   anterior do agregador retornou HTTP 403 por limitação do plano privado. Ainda
@@ -62,3 +64,14 @@ e corrigidos dois testes com datas expiradas, fixando somente o relógio da
 dependência de datas nos testes. As validações de data da aplicação permanecem
 ativas, incluindo o cenário de rejeição de datas passadas. Os 15 testes dos
 controles de deploy do agregador também passaram.
+
+## Publicação em 04/11/2026
+
+PRs: agregador #2, Auth #2, CRM #32, Sofia #24, Processor #13, Core #1,
+Runtime #6, Flow #1, Evolution API #1, Evolution Go #1 e Search #9.
+As branches principais e a produção continuam sem alterações desta publicação.
+
+Os primeiros runners identificaram publicação de imagens Docker Hub em builds
+de PR de Auth/Core/Flow/Sofia. Esses jobs passaram a construir com push=false,
+sem login ou credenciais de registry. A concorrência da suíte de controles do
+agregador foi separada entre execução direta e reutilização pelo CI.
