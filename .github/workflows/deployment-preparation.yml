@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: deployment-preparation-${{ github.ref }}
+  group: deployment-preparation-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   controls:
