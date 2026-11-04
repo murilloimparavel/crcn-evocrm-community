@@ -1,0 +1,75 @@
+name: EvoCRM production deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Full commit SHA or versioned release tag
+        required: true
+        type: string
+      confirm_production:
+        description: Type deploy to confirm a production deployment
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: evocrm-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Validate production release prerequisites
+    if: ${{ inputs.confirm_production == 'deploy' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.release_ref }}
+          submodules: true
+          token: ${{ secrets.SUBMODULES_READ_TOKEN }}
+          persist-credentials: false
+
+      - name: Validate release readiness evidence
+        run: python3 scripts/deploy/readiness.py deploy/production-readiness.json --expected-sha "$(git rev-parse HEAD)"
+
+      - name: Require explicit, verified deployment controls
+        env:
+          RELEASE_REF: ${{ inputs.release_ref }}
+          COOLIFY_BASE_URL: ${{ vars.COOLIFY_BASE_URL }}
+          COOLIFY_SERVICE_UUID: ${{ vars.COOLIFY_SERVICE_UUID }}
+          BACKUP_VERIFICATION_COMMAND: ${{ vars.BACKUP_VERIFICATION_COMMAND }}
+          MIGRATION_COMMAND: ${{ vars.MIGRATION_COMMAND }}
+          DEPLOY_COMMAND: ${{ vars.DEPLOY_COMMAND }}
+          HEALTHCHECK_COMMAND: ${{ vars.HEALTHCHECK_COMMAND }}
+          ROLLBACK_COMMAND: ${{ vars.ROLLBACK_COMMAND }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_REF" =~ ^([0-9a-f]{40}|v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::release_ref deve ser um SHA completo ou uma tag semver vX.Y.Z"
+            exit 1
+          fi
+          checked_out_sha="$(git rev-parse HEAD)"
+          requested_sha="$(git rev-parse "${RELEASE_REF}^{commit}")"
+          if [[ "$checked_out_sha" != "$requested_sha" ]]; then
+            echo "::error::checkout não corresponde ao release_ref solicitado"
+            exit 1
+          fi
+          test -n "$COOLIFY_BASE_URL"
+          test -n "$COOLIFY_SERVICE_UUID"
+          test -n "$COOLIFY_API_TOKEN"
+          test -n "$BACKUP_VERIFICATION_COMMAND"
+          test -n "$MIGRATION_COMMAND"
+          test -n "$DEPLOY_COMMAND"
+          test -n "$HEALTHCHECK_COMMAND"
+          test -n "$ROLLBACK_COMMAND"
+          echo "Preflight passed. Deployment remains disabled until runbook commands are reviewed and installed in the protected production environment."
+
+      - name: Stop until deployment adapter is implemented and reviewed
+        run: |
+          echo "::error::Production deployment is intentionally fail-closed. Implement and review the Coolify backup, migration, deploy, health verification, and application rollback adapter before enabling it."
+          exit 1

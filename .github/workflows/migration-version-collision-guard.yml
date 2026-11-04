@@ -1,0 +1,65 @@
+name: Migration version collision guard
+
+# EVO-2090: evo-ai-crm-community e evo-auth-service-community compartilham UMA
+# tabela `schema_migrations` (mesmo banco). Uma version reusada faz o Rails pular
+# a migration do segundo app -> DDL ausente -> boot quebra (messages.source,
+# EVO-1911).
+#
+# A prevenção PRIMÁRIA vive no CI de CADA repo como regra de PARIDADE de version
+# (auth = ímpar, CRM = par -> espaços disjuntos, colisão impossível por
+# construção). Este guard do monorepo é o BACKSTOP (cinto-e-suspensório): falha se
+# os dois submódulos fixados compartilharem qualquer version (ex.: uma
+# grandfathered/pré-cutoff, ou se um check de paridade por-repo for burlado).
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+jobs:
+  migration-collision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (com submódulos)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Checkout approved private modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: python3 .github/scripts/checkout-submodules.py
+
+      - name: Self-test do guard (fixtures)
+        run: |
+          set -euo pipefail
+          guard=.github/scripts/check-migration-version-collisions.sh
+          tmp="$(mktemp -d)"; mkdir -p "$tmp/crm" "$tmp/auth" "$tmp/empty-crm" "$tmp/empty-auth"
+          # (1) sem version compartilhada -> DEVE passar (exit 0)
+          : > "$tmp/crm/20200101000000_a.rb"
+          : > "$tmp/auth/20200101000001_b.rb"
+          bash "$guard" "$tmp/crm" "$tmp/auth"
+          # (1b) arquivos que não são migrations Rails não contam como migrations
+          : > "$tmp/crm/20200101000001_notes.txt"
+          bash "$guard" "$tmp/crm" "$tmp/auth"
+          # (2) version compartilhada -> DEVE falhar (exit 1)
+          : > "$tmp/auth/20200101000000_c.rb"
+          if bash "$guard" "$tmp/crm" "$tmp/auth"; then
+            echo "::error::self-test FALHOU — o guard não detectou a colisão injetada"
+            exit 1
+          fi
+          # (3) diretórios vazios devem falhar fechado
+          if bash "$guard" "$tmp/empty-crm" "$tmp/empty-auth" 2>/dev/null; then
+            echo "::error::self-test FALHOU — diretórios vazios foram aceitos"
+            exit 1
+          fi
+          echo "self-test OK: passa em input limpo e falha na colisão"
+
+      - name: Checar colisão de version de migration (CRM x auth)
+        run: bash .github/scripts/check-migration-version-collisions.sh

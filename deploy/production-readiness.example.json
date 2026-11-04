@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "release_sha": "",
+  "coolify_service_uuid": "tzbydmxtjuilf4xq2gow9gcs",
+  "activation_approved": false,
+  "migration_strategy": "expand-contract",
+  "images": {
+    "evocrm_auth": "",
+    "evocrm_auth_sidekiq": "",
+    "evocrm_bot_runtime": "",
+    "evocrm_core": "",
+    "evocrm_crm": "",
+    "evocrm_crm_sidekiq": "",
+    "evocrm_frontend": "",
+    "evocrm_gateway": "",
+    "evocrm_processor": ""
+  },
+  "previous_images": {
+    "evocrm_auth": "",
+    "evocrm_auth_sidekiq": "",
+    "evocrm_bot_runtime": "",
+    "evocrm_core": "",
+    "evocrm_crm": "",
+    "evocrm_crm_sidekiq": "",
+    "evocrm_frontend": "",
+    "evocrm_gateway": "",
+    "evocrm_processor": ""
+  },
+  "backup_verified_at": null,
+  "backup_offsite_verified": false,
+  "evidence": {
+    "ci": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "module_tests": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "integration_tests": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "security_scan": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "backup_restore": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "volume_restore": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "migration_rehearsal": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "healthchecks": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "rollback_rehearsal": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "serialized_deploy": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "github_access_control": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    },
+    "coolify_adapter": {
+      "passed": false,
+      "release_sha": "",
+      "url": ""
+    }
+  }
+}
