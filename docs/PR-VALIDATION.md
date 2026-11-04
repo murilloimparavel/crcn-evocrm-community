@@ -9,7 +9,7 @@ sucesso dos jobs necessários, inclusive lint dos próprios workflows com action
 |---|---|---|---|
 | crcn-evocrm-community | ci.yml | PR ready | Compose, Dockerfiles dos 10 módulos, migrations CRM/Auth, credencial de leitura, Actions e controles de deploy |
 | evo-auth-service-community | test.yml | PR ready | RSpec existente e Actions |
-| evo-ai-crm-community | ci.yml | CRM required checks | RuboCop, Brakeman, RSpec, build Docker sem publicação e Actions |
+| evo-ai-crm-community | ci.yml | CRM required checks | RuboCop, Brakeman, RSpec com comparação à base, build Docker sem publicação e Actions |
 | sofia-central-frontend | test.yml | PR ready | TypeScript, builds moderno/Chrome 109, Vitest selecionado, ESLint do PR e Actions |
 | evo-ai-core-service-community | go-test.yml | PR ready | Build, vet e testes Go com go.community.mod e Actions |
 | evo-bot-runtime | ci.yml | PR ready | Build, vet e testes Go com Redis isolado e Actions |
@@ -75,3 +75,17 @@ Os primeiros runners identificaram publicação de imagens Docker Hub em builds
 de PR de Auth/Core/Flow/Sofia. Esses jobs passaram a construir com push=false,
 sem login ou credenciais de registry. A concorrência da suíte de controles do
 agregador foi separada entre execução direta e reutilização pelo CI.
+
+Proteção de main confirmada via API em Auth, CRM, Processor, Core, Runtime, Flow,
+Evolution API e Evolution Go: checks obrigatórios, branch atualizada, uma aprovação,
+revisões antigas invalidadas e aplicação da regra também aos administradores.
+Nos repositórios privados agregador, Sofia e Search, o GitHub retornou HTTP 403
+exigindo upgrade de plano para proteção. Nenhuma visibilidade foi alterada.
+O acesso write de ventturaz-dev foi reconfirmado nos onze repositórios.
+
+O Dependency Review de Evolution API passou depois da ativação dos alertas de
+vulnerabilidade. Search teve body-parser e qs transitivos corrigidos no lockfile,
+com npm audit --omit=dev sem vulnerabilidades. Processor teve o handler genérico
+de erro restaurado e registrado no FastAPI; o teste existente detectou sua ausência.
+Core teve migrate@latest substituído por v4.18.3, compatível com o Go da imagem.
+As correções ficam nos respectivos PRs; nenhuma foi implantada em produção.
