@@ -1,0 +1,47 @@
+# Candidate overlay for the audited Coolify service. Validate against the exact
+# release images in staging before merging into Coolify's stored Compose.
+x-health: &health
+  interval: 30s
+  timeout: 15s
+  retries: 3
+  start_period: 120s
+services:
+  evocrm_auth:
+    environment:
+      RUN_MIGRATIONS: 'false'
+    healthcheck:
+      <<: *health
+      test: [CMD, ruby, -rnet/http, -e, "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3001/health')).code == '200' ? 0 : 1)"]
+  evocrm_crm:
+    environment:
+      RUN_MIGRATIONS: 'false'
+    healthcheck:
+      <<: *health
+      test: [CMD, ruby, -rnet/http, -e, "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/health/ready')).code == '200' ? 0 : 1)"]
+  evocrm_auth_sidekiq:
+    environment:
+      RUN_MIGRATIONS: 'false'
+    healthcheck:
+      <<: *health
+      test: [CMD, bundle, exec, ruby, -rsidekiq/api, -rsocket, -e, "exit(Sidekiq::ProcessSet.new.any? { |p| p['hostname'] == Socket.gethostname && Time.now.to_f - p['beat'].to_f < 60 } ? 0 : 1)"]
+  evocrm_crm_sidekiq:
+    environment:
+      RUN_MIGRATIONS: 'false'
+    healthcheck:
+      <<: *health
+      test: [CMD, bundle, exec, ruby, -rsidekiq/api, -rsocket, -e, "exit(Sidekiq::ProcessSet.new.any? { |p| p['hostname'] == Socket.gethostname && Time.now.to_f - p['beat'].to_f < 60 } ? 0 : 1)"]
+  evocrm_processor:
+    healthcheck:
+      <<: *health
+      test: [CMD, python, -c, "import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=10); exit(0 if r.status == 200 else 1)"]
+  evocrm_bot_runtime:
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:8080/health']
+  evocrm_frontend:
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/']
+# Gateway must have a dedicated readiness route covering required upstreams.
+# Core endpoint/command must be verified in its exact release image.
+# Neither is silently treated as healthy by a TCP-only probe.

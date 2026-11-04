@@ -55,6 +55,9 @@ Host: `vps-caldas`; Coolify 4.5.3; Service UUID
   O dump usa `--no-owner --no-acl`; não é uma prova de recuperação completa de RLS.
 - Snapshot privado do Compose e inventário sem valores de ambiente foram guardados
   em `/data/evocrm-deploy-preparation`, sem copiar dados de clientes para o Git.
+- Overlay candidato `deploy/compose.coolify.healthchecks.yml` mesclado com o
+  Compose real apenas para `docker compose config --quiet`: exit 0. Não foi
+  aplicado; os probes e as imagens finais ainda precisam de ensaio em staging.
 - A leitura atual mantém sete serviços de aplicação sem healthcheck Docker. Gateway
   e Core ainda usam `evoapicloud/*:latest`; os demais usam pacotes personalizados,
   que precisam de conciliação antes de trocar por imagens genéricas do agregador.
