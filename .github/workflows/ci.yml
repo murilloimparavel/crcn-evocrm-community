@@ -1,0 +1,188 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+  workflow_call:
+    secrets:
+      SUBMODULES_SSH_KEYS:
+        required: true
+
+concurrency:
+  group: aggregator-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  validate-compose:
+    name: Validate Docker Compose
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Seed .env from example
+        run: cp .env.example .env
+
+      - name: Validate docker-compose.yml
+        run: CLICKHOUSE_PASSWORD=ci-only docker compose config --quiet
+
+  lint-dockerfiles:
+    name: Lint Dockerfiles
+    timeout-minutes: 20
+    needs: submodule-access
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Checkout approved private modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: python3 .github/scripts/checkout-submodules.py
+
+      - name: Lint Auth Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-auth-service-community/Dockerfile
+          failure-threshold: error
+
+      - name: Lint CRM Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-ai-crm-community/docker/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Frontend Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: sofia-central-frontend/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Processor Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-ai-processor-community/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Core Service Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-ai-core-service-community/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Bot Runtime Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-bot-runtime/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Flow Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evo-flow-community/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Evolution API Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evolution-api/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Evolution Go Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: evolution-go/Dockerfile
+          failure-threshold: error
+
+      - name: Lint Search API Dockerfile
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: crcn-search-api/Dockerfile
+          failure-threshold: error
+
+  check-migration-collision:
+    name: Check Migration Version Collision (CRM vs auth)
+    timeout-minutes: 10
+    needs: submodule-access
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: false
+
+      - name: Checkout approved private modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: python3 .github/scripts/checkout-submodules.py
+
+      - name: Run migration collision guard
+        run: bash .github/scripts/check-migration-version-collisions.sh
+
+  submodule-access:
+    name: Check private module access prerequisites
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - run: bash .github/scripts/validate-submodules.sh
+      - name: Require scoped module read credentials
+        env:
+          MODULE_TOKEN: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: |
+          if [[ -z "$MODULE_TOKEN" ]]; then
+            echo '::error::SUBMODULES_SSH_KEYS is missing. Configure the read-only deploy key bundle for the ten personal module repositories. Fork PRs need a trusted internal branch; validation is never silently skipped.'
+            exit 1
+          fi
+
+  workflow-lint:
+    name: Validate GitHub Actions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        with:
+          go-version: '1.24.4'
+          cache: false
+      - run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      - run: actionlint -shellcheck= -pyflakes=
+
+  safety-controls:
+    uses: ./.github/workflows/deployment-preparation.yml
+
+  pr-ready:
+    name: PR ready
+    if: always()
+    needs: [validate-compose, lint-dockerfiles, check-migration-collision, submodule-access, workflow-lint, safety-controls]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful validation
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          python3 - <<'PY_GATE'
+          import json, os
+          results = json.loads(os.environ['RESULTS'])
+          failed = [job for job, result in results.items() if result['result'] != 'success']
+          if failed:
+              raise SystemExit('Required validation did not succeed: ' + ', '.join(failed))
+          print('All required PR checks passed')
+          PY_GATE

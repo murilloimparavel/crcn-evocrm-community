@@ -1,0 +1,32 @@
+name: Deployment safety preparation
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: deployment-preparation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  controls:
+    name: Test deployment safety controls
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: python -m pip install PyYAML==6.0.3
+      - run: python -m unittest discover -s tests/deploy -v
+      - run: bash -n scripts/deploy/backup-restore.sh
+      - name: Confirm production remains blocked by default
+        run: |
+          if python scripts/deploy/readiness.py deploy/production-readiness.example.json; then
+            echo '::error::Incomplete evidence was incorrectly accepted'
+            exit 1
+          fi
