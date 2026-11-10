@@ -42,6 +42,11 @@ services:
     healthcheck:
       <<: *health
       test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1/']
-# Gateway must have a dedicated readiness route covering required upstreams.
-# Core endpoint/command must be verified in its exact release image.
-# Neither is silently treated as healthy by a TCP-only probe.
+  evocrm_core:
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:5555/ready']
+  evocrm_gateway:
+    healthcheck:
+      <<: *health
+      test: [CMD, wget, -q, -O, /dev/null, 'http://127.0.0.1:3030/ready']
