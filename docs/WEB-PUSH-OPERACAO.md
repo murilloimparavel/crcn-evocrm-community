@@ -10,6 +10,8 @@
 
 ## Verificação
 
+O Sofia inclui `npm run test:webpush-browser`, que entrega um evento de push simulado ao service worker em Chromium e verifica o conteúdo exibido. O teste usa apenas um servidor local; ele não comprova entrega pelo serviço de push nem substitui os testes em celulares. Use `CHROMIUM_EXECUTABLE_PATH` se o Chromium completo não estiver na localização padrão do Playwright.
+
 1. Confirme que CRM e Sidekiq usam a mesma configuração e que o domínio público do frontend corresponde à origem usada no dispositivo.
 2. Entre com um usuário autorizado, ative notificações no perfil e habilite as preferências de nova conversa e nova mensagem que deseja receber.
 3. Com o aplicativo fechado, envie uma mensagem de teste para uma conversa elegível; confira remetente, prévia ou indicação de anexo e abertura da conversa ao tocar.
