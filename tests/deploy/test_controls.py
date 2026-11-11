@@ -79,3 +79,19 @@ class Controls(unittest.TestCase):
             with self.assertRaises(ValueError): healthchecks.check(url)
 
 if __name__ == '__main__': unittest.main()
+
+class LocalBackupException(unittest.TestCase):
+    setUp = Controls.setUp
+    errors = Controls.errors
+    def test_explicit_local_exception_preserves_truth_about_offsite(self):
+        self.data['backup_offsite_verified'] = False
+        self.data['backup_policy'] = {'mode': 'same-vps-temporary',
+            'same_failure_domain_acknowledged': True,
+            'approval_reference': 'User instruction 2026-11-10: MinIO VPS temporarily'}
+        self.assertEqual(self.errors(), [])
+        self.assertFalse(self.data['backup_offsite_verified'])
+
+    def test_unacknowledged_local_exception_is_rejected(self):
+        self.data['backup_offsite_verified'] = False
+        self.data['backup_policy'] = {'mode': 'same-vps-temporary'}
+        self.assertIn('offsite backup verification required', self.errors())

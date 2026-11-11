@@ -63,7 +63,14 @@ def validate(data, expected_sha=None, now=None):
     except (KeyError, ValueError, TypeError):
         errors.append('backup_verified_at: timezone-aware ISO timestamp required')
     if data.get('backup_offsite_verified') is not True:
-        errors.append('offsite backup verification required')
+        policy = data.get('backup_policy', {})
+        local_exception = (isinstance(policy, dict)
+            and policy.get('mode') == 'same-vps-temporary'
+            and policy.get('same_failure_domain_acknowledged') is True
+            and isinstance(policy.get('approval_reference'), str)
+            and bool(policy['approval_reference'].strip()))
+        if not local_exception:
+            errors.append('offsite backup verification required')
     if data.get('activation_approved') is not True:
         errors.append('production activation has not been approved')
     return errors

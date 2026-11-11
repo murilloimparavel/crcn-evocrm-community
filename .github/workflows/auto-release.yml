@@ -1,0 +1,215 @@
+name: Main release candidate
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: evocrm-main-release
+  cancel-in-progress: false
+jobs:
+  runtime-qa:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: --health-cmd 'redis-cli ping' --health-interval 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Checkout approved modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: python3 .github/scripts/checkout-submodules.py
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: evo-bot-runtime/go.mod
+          cache-dependency-path: evo-bot-runtime/go.sum
+      - name: Runtime race and E2E tests
+        working-directory: evo-bot-runtime
+        run: go test -race -p 1 ./... -count=1
+      - name: Deployment controller tests
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s tests/deploy -v
+  images:
+    needs: runtime-qa
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - name: auth
+            context: evo-auth-service-community
+            dockerfile: evo-auth-service-community/Dockerfile
+          - name: crm
+            context: evo-ai-crm-community
+            dockerfile: evo-ai-crm-community/docker/Dockerfile
+          - name: core
+            context: evo-ai-core-service-community
+            dockerfile: evo-ai-core-service-community/Dockerfile
+          - name: processor
+            context: evo-ai-processor-community
+            dockerfile: evo-ai-processor-community/Dockerfile
+          - name: runtime
+            context: evo-bot-runtime
+            dockerfile: evo-bot-runtime/Dockerfile
+          - name: frontend
+            context: sofia-central-frontend
+            dockerfile: sofia-central-frontend/Dockerfile
+          - name: gateway
+            context: nginx
+            dockerfile: nginx/Dockerfile
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - name: Checkout approved modules
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+        run: python3 .github/scripts/checkout-submodules.py
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build immutable candidate
+        id: build
+        uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          build-args: GIT_SHA=${{ github.event.workflow_run.head_sha }}
+          provenance: mode=max
+          sbom: true
+          labels: org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+          tags: ghcr.io/murilloimparavel/crcn-release-${{ matrix.name }}:sha-${{ github.event.workflow_run.head_sha }}
+          cache-from: type=gha,scope=release-${{ matrix.name }}
+          cache-to: type=gha,scope=release-${{ matrix.name }},mode=max
+      - name: Scan exact digest
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec
+        with:
+          image-ref: ghcr.io/murilloimparavel/crcn-release-${{ matrix.name }}@${{ steps.build.outputs.digest }}
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: false
+      - name: Record exact image
+        env:
+          COMPONENT: ${{ matrix.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p candidate
+          python3 -c 'import json,os; n=os.environ["COMPONENT"]; json.dump({n:"ghcr.io/murilloimparavel/crcn-release-"+n+"@"+os.environ["DIGEST"]},open("candidate/"+n+".json","w"))'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: candidate-${{ matrix.name }}
+          path: candidate/*.json
+          retention-days: 7
+  qa-on-vps:
+    needs: images
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: candidate-*
+          path: candidate
+          merge-multiple: true
+      - name: Reject obsolete main release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$RELEASE_SHA"
+      - name: Build request
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python3 scripts/deploy/release-request.py candidate request.json
+      - name: Send to restricted host executor
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_EXECUTOR_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_EXECUTOR_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_EXECUTOR_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_EXECUTOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$DEPLOY_HOST"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/evocrm-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/evocrm-ssh"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/evocrm-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/evocrm-ssh/known_hosts"
+          ssh -T -p "${DEPLOY_PORT:-22}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" rehearse < request.json
+
+  promote:
+    needs: qa-on-vps
+    if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: candidate-*
+          path: candidate
+          merge-multiple: true
+      - name: Reject obsolete main release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$RELEASE_SHA"
+      - name: Build request
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python3 scripts/deploy/release-request.py candidate request.json
+      - name: Send to restricted host executor
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_EXECUTOR_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_EXECUTOR_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_EXECUTOR_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_EXECUTOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$DEPLOY_HOST"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/evocrm-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/evocrm-ssh"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/evocrm-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/evocrm-ssh/known_hosts"
+          ssh -T -p "${DEPLOY_PORT:-22}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" < request.json

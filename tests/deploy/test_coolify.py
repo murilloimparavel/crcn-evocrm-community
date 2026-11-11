@@ -23,7 +23,7 @@ class Adapter(unittest.TestCase):
         self.current = yaml.safe_dump({'services':{s:{'image':i, 'environment':{'PRIVATE':'unchanged'},
             'volumes':['data:/data']} for s,i in self.old.items()},'volumes':{'data':{}}})
         self.release = a.plan(self.current,self.images)
-        self.client=Mock(enabled=True)
+        self.client=Mock(enabled=True, resource=a.RESOURCE)
         self.client.current.return_value=self.current
         self.health=Mock();self.smoke=Mock()
         temporary=tempfile.TemporaryDirectory();self.addCleanup(temporary.cleanup)
@@ -71,6 +71,16 @@ class Adapter(unittest.TestCase):
         with self.assertRaisesRegex(a.DeploymentError,'restored and verified'):
             a.promote(self.client,self.release,self.health,self.smoke,self.private_dir)
         self.assertEqual(self.client.deploy.call_count,1)
+    def test_unconfirmed_start_restores_configuration_without_racing_coolify(self):
+        self.client.application_only = True
+        self.client.start_application.side_effect = TimeoutError()
+        with self.assertRaises(a.ReconciliationRequired):
+            a.promote(self.client, self.release, self.health, self.smoke, self.private_dir)
+        self.client.start_application.assert_called_once()
+        self.assertEqual(self.client.set_compose.call_args.args[0], self.current)
+        self.health.wait.assert_not_called()
+        self.smoke.assert_not_called()
+
     def test_smoke_failure_restores_application(self):
         self.smoke.side_effect=RuntimeError('smoke failed')
         with self.assertRaisesRegex(a.DeploymentError,'restored and verified'):
@@ -105,3 +115,46 @@ class Adapter(unittest.TestCase):
         self.client.current.assert_not_called()
 
 if __name__=='__main__':unittest.main()
+
+class StagingAdapter(unittest.TestCase):
+    def test_stage_allows_local_immutable_image_ids(self):
+        images={n: 'sha256:'+'b'*64 for n in a.REQUIRED}
+        raw=yaml.safe_dump({'services':{n:{'image':'old'} for n in a.REQUIRED}})
+        self.assertEqual(a.plan(raw,images,resource=a.STAGING_RESOURCE)['resource'], a.STAGING_RESOURCE)
+        with self.assertRaises(a.DeploymentError):a.plan(raw,images)
+
+    def test_stage_client_cannot_deploy_production(self):
+        client=a.Coolify('https://coolify.example','private',enabled=True,resource=a.STAGING_RESOURCE)
+        with self.assertRaises(a.DeploymentError):client.request('POST','/deploy',{'uuid':a.RESOURCE})
+
+    def test_rejects_unknown_resource(self):
+        with self.assertRaises(a.DeploymentError):a.Coolify('https://coolify.example','private',resource='other')
+
+    def test_release_cannot_cross_resource_boundary(self):
+        client=Mock(enabled=True,resource=a.RESOURCE)
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaises(a.DeploymentError):
+                a.promote(client,{'resource':a.STAGING_RESOURCE},Mock(),Mock(),Path(temporary))
+        client.current.assert_not_called()
+
+class ApplicationOnly(unittest.TestCase):
+    def test_cannot_deploy_whole_stack(self):
+        opener=Mock()
+        client=a.Coolify('https://coolify.example','private',enabled=True,opener=opener,application_only=True)
+        with self.assertRaises(a.DeploymentError):client.deploy()
+        opener.open.assert_not_called()
+
+    def test_never_starts_datastore_application(self):
+        client=a.Coolify('https://coolify.example','private',enabled=True,application_only=True)
+        client.request=Mock(return_value=[{'name':n,'uuid':'abcdef1234567890'} for n in a.REQUIRED|{'postgres','redis'}])
+        client.discover_applications()
+        self.assertEqual(set(client._app_paths), a.REQUIRED)
+        with self.assertRaises(a.DeploymentError):client.start_application('postgres')
+
+    def test_waits_for_each_changed_app_then_full_health(self):
+        client=Mock(application_only=True);health=Mock()
+        images={n:'image-for-'+n for n in a.REQUIRED}
+        a.apply_images(client,images,{'evocrm_crm','evocrm_bot_runtime'},health)
+        self.assertEqual([x.args[0] for x in client.start_application.call_args_list],['evocrm_crm','evocrm_bot_runtime'])
+        self.assertEqual([x.args[0] for x in health.wait.call_args_list],[{'evocrm_crm':images['evocrm_crm']},{'evocrm_bot_runtime':images['evocrm_bot_runtime']},images])
+        client.deploy.assert_not_called()

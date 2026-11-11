@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "baseline_approved": false,
+  "source_repository": "/data/evocrm-deploy-executor/source",
+  "coolify_url": "",
+  "coolify_token_file": "/data/evocrm-deploy-executor/coolify-token.private",
+  "backup_command": [],
+  "backup_verification_command": [],
+  "drain_command": [],
+  "resume_command": [],
+  "migration_command": [],
+  "smoke_command": []
+}
