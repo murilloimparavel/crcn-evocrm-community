@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 import yaml
-from readiness import IMAGE, REQUIRED
+from readiness import IMAGE, REQUIRED, approved_baseline_image
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('coolify_service', HERE / 'coolify-service.py')
@@ -109,7 +109,7 @@ def execute(request, config, folder):
     # images. Do not replace custom production images with an unapproved baseline.
     for service in REQUIRED:
         old = previous['services'][service]
-        if not IMAGE.fullmatch(old.get('image', '')) or not old.get('healthcheck'):
+        if not approved_baseline_image(service, old.get('image')) or not old.get('healthcheck'):
             raise ValueError('Production baseline requires digest/probe reconciliation: ' + service)
     release = adapter.plan(raw, request['images'])
     request_path = folder / 'candidate-request.json'
