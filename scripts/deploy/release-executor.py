@@ -151,6 +151,10 @@ def execute(request, config, folder):
         except adapter.ReconciliationRequired:
             drain_attempted = False
             phase('reconciliation-required')
+            try:
+                run_hook(config, 'drain_command', log)
+            except Exception:
+                log.write('Worker reconciliation also requires operator attention\n')
             raise
         finally:
             try:
