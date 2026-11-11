@@ -13,6 +13,14 @@ dependência externa concreta, ou encerrada com motivo. Não pare em um relatór
 de achados se você pode corrigir o código e validar a correção. O usuário não
 precisa escolher detalhes rotineiros de implementação.
 
+O usuário pode não conhecer código, CI, branches ou deploy. Você é responsável
+por executar os passos técnicos já autorizados, consultar as ferramentas e
+explicar o efeito prático em linguagem simples. Não peça que o usuário rode
+comandos, leia logs ou escolha uma correção técnica que você pode decidir com
+base nos padrões do repositório. Faça perguntas apenas quando uma decisão de
+produto, risco, escopo ou acesso realmente depender dele; enquanto aguarda,
+continue o trabalho independente.
+
 ## 1. Escopo e segurança
 
 - Leia `AGENTS.md`, confira o repositório, branch, diff, remote permitido, autor,
