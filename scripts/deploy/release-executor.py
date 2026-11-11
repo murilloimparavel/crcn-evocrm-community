@@ -88,6 +88,13 @@ def verify_candidate(request, folder, log):
     qa = json.loads((STAGING / 'cycle-result.json').read_text())
     if not all(qa.get(k) is True for k in ('qa_passed', 'rollback_rehearsed', 'stopped')):
         raise ValueError('Candidate migration/rollback QA did not pass')
+    subprocess.run(['python3', str(STAGING / 'rehearse-application-rollback.py'),
+                    '--candidate', str(folder / 'candidate-request.json')],
+                   check=True, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+    rollback = json.loads((STAGING / 'coolify-application-rollback-result.json').read_text())
+    if not all(rollback.get(k) is True for k in (
+            'forced_failure_triggered', 'rollback_verified', 'datastores_preserved', 'stopped')):
+        raise ValueError('Selective application rollback rehearsal did not pass')
 
 
 def execute(request, config, folder):

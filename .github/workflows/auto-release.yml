@@ -134,7 +134,7 @@ jobs:
     needs: images
     environment: production
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -178,7 +178,7 @@ jobs:
     if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     environment: production
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 85
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
