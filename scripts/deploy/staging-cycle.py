@@ -52,6 +52,22 @@ def validate(document, network):
             raise ValueError('Missing staging healthcheck: ' + name)
 
 
+def staging_network():
+    # Coolify may remove an unused network while the ephemeral stack is stopped.
+    with (ROOT / 'network.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            raw = subprocess.check_output(['docker', 'network', 'inspect', RESOURCE], stderr=subprocess.PIPE)
+        except subprocess.CalledProcessError:
+            subprocess.run(['docker', 'network', 'create', '--internal', '--attachable', RESOURCE],
+                           check=True, capture_output=True, timeout=30)
+            raw = subprocess.check_output(['docker', 'network', 'inspect', RESOURCE])
+        network = json.loads(raw)[0]
+        if network.get('Name') != RESOURCE or network.get('Internal') is not True:
+            raise ValueError('Staging network must remain internal')
+        return network
+
+
 def private_replace(path, content):
     fd, temporary = tempfile.mkstemp(prefix='.staging-', dir=path.parent)
     try:
@@ -114,7 +130,7 @@ def main():
         with (ROOT / 'cycle.private.log').open('a') as log:
             stop_stack(log)
         return
-    network = json.loads(subprocess.check_output(['docker', 'network', 'inspect', RESOURCE]))[0]
+    network = staging_network()
     original = COMPOSE.read_text()
     document = yaml.safe_load(original)
     validate(document, network)
@@ -152,14 +168,14 @@ def main():
                 stop_stack(log)
                 baseline_routes = None
                 if args.candidate:
-                    command(compose + ['up', '-d', '--wait', '--wait-timeout', '120', 'postgres', 'redis'], log, 180)
+                    command(compose + ['up', '-d', '--force-recreate', '--wait', '--wait-timeout', '120', 'postgres', 'redis'], log, 180)
                     baseline_routes = api_routes(compose, ROOT / 'baseline-routes.private.log')
                 if candidate != original:
                     private_replace(COMPOSE, candidate)
                     COMPOSE.chmod(0o600)
-                command(compose + ['up', '-d', '--wait', '--wait-timeout', '120', 'postgres', 'redis'], log, 180)
+                command(compose + ['up', '-d', '--force-recreate', '--wait', '--wait-timeout', '120', 'postgres', 'redis'], log, 180)
                 command(['python3', str(ROOT / 'migrate.py')], log, 1200)
-                command(compose + ['up', '-d', '--wait', '--wait-timeout', '300'], log, 360)
+                command(compose + ['up', '-d', '--force-recreate', '--wait', '--wait-timeout', '300'], log, 360)
                 # Require a stability window rather than one healthy sample.
                 for _ in range(3):
                     for name in yaml.safe_load(COMPOSE.read_text())['services']:

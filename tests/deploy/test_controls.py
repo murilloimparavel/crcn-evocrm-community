@@ -33,6 +33,18 @@ class Controls(unittest.TestCase):
         self.assertTrue(readiness.validate(example))
     def test_complete_evidence(self):
         self.assertEqual(self.errors(), [])
+    def test_vendor_rollback_uses_exact_origin_digest_for_its_service(self):
+        self.data['previous_images']['evocrm_core'] = (
+            'evoapicloud/evo-ai-core-service-community@sha256:' + 'c' * 64)
+        self.assertEqual(self.errors(), [])
+        self.data['previous_images']['evocrm_gateway'] = self.data['previous_images']['evocrm_core']
+        self.assertTrue(self.errors())
+
+    def test_vendor_rollback_policy_cannot_replace_candidate_provenance(self):
+        self.data['images']['evocrm_core'] = (
+            'evoapicloud/evo-ai-core-service-community@sha256:' + 'c' * 64)
+        self.assertTrue(self.errors())
+
     def test_not_approved(self):
         self.data['activation_approved'] = False
         self.assertIn('production activation has not been approved', self.errors())

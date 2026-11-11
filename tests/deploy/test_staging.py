@@ -116,3 +116,32 @@ class CleanupOwnership(unittest.TestCase):
              patch.object(staging.subprocess, 'check_output', return_value=b'--all'):
             with self.assertRaises(RuntimeError): staging.stop_stack(None)
             command.assert_not_called()
+
+
+class NetworkRecovery(unittest.TestCase):
+    def test_missing_network_is_recreated_internal(self):
+        import json
+        import subprocess
+        import tempfile
+        from unittest.mock import patch
+        network = {'Name': staging.RESOURCE, 'Internal': True}
+        with tempfile.TemporaryDirectory() as directory, patch.object(staging, 'ROOT', Path(directory)):
+            with patch.object(staging.subprocess, 'check_output', side_effect=[
+                    subprocess.CalledProcessError(1, ['docker']), json.dumps([network]).encode()]):
+                with patch.object(staging.subprocess, 'run') as run:
+                    self.assertEqual(staging.staging_network(), network)
+                    run.assert_called_once_with(
+                        ['docker', 'network', 'create', '--internal', '--attachable', staging.RESOURCE],
+                        check=True, capture_output=True, timeout=30)
+
+    def test_existing_external_network_is_rejected(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+        network = {'Name': staging.RESOURCE, 'Internal': False}
+        with tempfile.TemporaryDirectory() as directory, patch.object(staging, 'ROOT', Path(directory)):
+            with patch.object(staging.subprocess, 'check_output', return_value=json.dumps([network]).encode()):
+                with patch.object(staging.subprocess, 'run') as run:
+                    with self.assertRaises(ValueError):
+                        staging.staging_network()
+                    run.assert_not_called()

@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 import yaml
-from readiness import IMAGE, REQUIRED
+from readiness import IMAGE, REQUIRED, approved_baseline_image
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location('coolify_service', HERE / 'coolify-service.py')
@@ -88,6 +88,13 @@ def verify_candidate(request, folder, log):
     qa = json.loads((STAGING / 'cycle-result.json').read_text())
     if not all(qa.get(k) is True for k in ('qa_passed', 'rollback_rehearsed', 'stopped')):
         raise ValueError('Candidate migration/rollback QA did not pass')
+    subprocess.run(['python3', str(STAGING / 'rehearse-application-rollback.py'),
+                    '--candidate', str(folder / 'candidate-request.json')],
+                   check=True, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+    rollback = json.loads((STAGING / 'coolify-application-rollback-result.json').read_text())
+    if not all(rollback.get(k) is True for k in (
+            'forced_failure_triggered', 'rollback_verified', 'datastores_preserved', 'stopped')):
+        raise ValueError('Selective application rollback rehearsal did not pass')
 
 
 def execute(request, config, folder):
@@ -109,7 +116,7 @@ def execute(request, config, folder):
     # images. Do not replace custom production images with an unapproved baseline.
     for service in REQUIRED:
         old = previous['services'][service]
-        if not IMAGE.fullmatch(old.get('image', '')) or not old.get('healthcheck'):
+        if not approved_baseline_image(service, old.get('image')) or not old.get('healthcheck'):
             raise ValueError('Production baseline requires digest/probe reconciliation: ' + service)
     release = adapter.plan(raw, request['images'])
     request_path = folder / 'candidate-request.json'

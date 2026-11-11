@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 def module(name, file):
@@ -59,3 +60,19 @@ class Requests(unittest.TestCase):
         images = {n: 'ghcr.io/murilloimparavel/unrelated@sha256:' + 'b' * 64 for n in executor.REQUIRED}
         with self.assertRaises(ValueError):
             executor.validate_request({'schema_version': 1, 'release_sha': 'a' * 40, 'images': images})
+
+
+class CandidateRehearsal(unittest.TestCase):
+    def test_successful_qa_cannot_hide_unverified_application_rollback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            (folder / 'cycle-result.json').write_text(json.dumps({
+                'qa_passed': True, 'rollback_rehearsed': True, 'stopped': True}))
+            (folder / 'coolify-application-rollback-result.json').write_text(json.dumps({
+                'forced_failure_triggered': True, 'rollback_verified': False,
+                'datastores_preserved': True, 'stopped': True}))
+            data = {'release_sha': 'a' * 40, 'images': {'test': 'image'}}
+            with patch.object(executor, 'STAGING', folder), patch.object(executor.subprocess, 'run'), patch.object(
+                    executor.subprocess, 'check_output', return_value='a' * 40):
+                with self.assertRaisesRegex(ValueError, 'Selective application rollback'):
+                    executor.verify_candidate(data, folder, None)

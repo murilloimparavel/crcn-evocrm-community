@@ -1,4 +1,4 @@
-import importlib.util,json,subprocess,sys
+import argparse,fcntl,importlib.util,json,subprocess,sys
 from pathlib import Path
 root=Path('/data/evocrm-staging');sys.path.insert(0,str(root/'adapter'))
 def load(name,path):
@@ -6,9 +6,14 @@ def load(name,path):
 adapter=load('adapter',root/'adapter/coolify-service.py')
 bootstrap=load('bootstrap',root/'bootstrap-coolify.py')
 staging=load('staging',root/'staging-cycle.py')
-token=subprocess.check_output(['docker','exec','coolify','cat','/tmp/evocrm-staging-token.private'],text=True).strip()
+parser=argparse.ArgumentParser()
+parser.add_argument('--candidate',type=Path,default=root/'candidate-local-images.json')
+args=parser.parse_args()
+cycle_lock=(root/'cycle.lock').open('a')
+fcntl.flock(cycle_lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+token=(root/'coolify-token.private').read_text().strip()
 client=adapter.Coolify(bootstrap.API.removesuffix('/api/v1'),token,enabled=True,resource=adapter.STAGING_RESOURCE,application_only=True)
-manifest=json.load((root/'candidate-local-images.json').open());raw=client.current()
+manifest=json.load(args.candidate.open());raw=client.current()
 release=adapter.plan(raw,manifest['images'],resource=adapter.STAGING_RESOURCE)
 state=root/'application-rollback-rehearsal';state.mkdir(mode=0o700,exist_ok=True)
 health=adapter.DockerHealth(timeout=360,stable_rounds=3,interval=5,resource=adapter.STAGING_RESOURCE)

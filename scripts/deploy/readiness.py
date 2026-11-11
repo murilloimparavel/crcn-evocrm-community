@@ -11,6 +11,21 @@ IMAGE = re.compile(r'ghcr\.io/murilloimparavel/[a-z0-9._-]+@sha256:[0-9a-f]{64}'
 REQUIRED = {'evocrm_gateway', 'evocrm_auth', 'evocrm_auth_sidekiq', 'evocrm_crm',
             'evocrm_crm_sidekiq', 'evocrm_core', 'evocrm_processor',
             'evocrm_bot_runtime', 'evocrm_frontend'}
+BASELINE_REPOSITORIES = {
+    'evocrm_core': 'evoapicloud/evo-ai-core-service-community',
+    'evocrm_gateway': 'evoapicloud/evo-crm-gateway',
+}
+
+
+def approved_baseline_image(service, image):
+    if not isinstance(image, str):
+        return False
+    if IMAGE.fullmatch(image):
+        return True
+    repository = BASELINE_REPOSITORIES.get(service)
+    return bool(repository and re.fullmatch(re.escape(repository) + r'@sha256:[a-f0-9]{64}', image))
+
+
 CONTROLS = ('ci', 'module_tests', 'integration_tests', 'security_scan',
             'backup_restore', 'volume_restore', 'migration_rehearsal',
             'healthchecks', 'rollback_rehearsal', 'serialized_deploy',
@@ -35,8 +50,10 @@ def validate(data, expected_sha=None, now=None):
             errors.append(f'{field}: exact production service set required')
             continue
         for service, image in images.items():
-            if not isinstance(image, str) or not IMAGE.fullmatch(image):
-                errors.append(f'{field}.{service}: personal GHCR digest required')
+            approved = approved_baseline_image(service, image) if field == 'previous_images' else (
+                isinstance(image, str) and bool(IMAGE.fullmatch(image)))
+            if not approved:
+                errors.append(f'{field}.{service}: approved immutable image digest required')
         for web, worker in [('evocrm_auth', 'evocrm_auth_sidekiq'), ('evocrm_crm', 'evocrm_crm_sidekiq')]:
             if images[web] != images[worker]:
                 errors.append(f'{field}: web and worker images differ for {web}')
