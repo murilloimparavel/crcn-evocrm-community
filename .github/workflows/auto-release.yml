@@ -127,8 +127,51 @@ jobs:
           name: candidate-${{ matrix.name }}
           path: candidate/*.json
           retention-days: 7
-  promote:
+  qa-on-vps:
     needs: images
+    environment: production
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: candidate-*
+          path: candidate
+          merge-multiple: true
+      - name: Reject obsolete main release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)"
+          test "$current" = "$RELEASE_SHA"
+      - name: Build request
+        env:
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: python3 scripts/deploy/release-request.py candidate request.json
+      - name: Send to restricted host executor
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_EXECUTOR_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_EXECUTOR_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_EXECUTOR_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_EXECUTOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$DEPLOY_HOST"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/evocrm-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/evocrm-ssh"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/evocrm-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/evocrm-ssh/known_hosts"
+          ssh -T -p "${DEPLOY_PORT:-22}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" rehearse < request.json
+
+  promote:
+    needs: qa-on-vps
     if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
     environment: production
     runs-on: ubuntu-latest
@@ -160,6 +203,7 @@ jobs:
           DEPLOY_KEY: ${{ secrets.DEPLOY_EXECUTOR_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_EXECUTOR_KNOWN_HOSTS }}
           DEPLOY_HOST: ${{ vars.DEPLOY_EXECUTOR_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_EXECUTOR_PORT }}
         run: |
           set -euo pipefail
           test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$DEPLOY_HOST"
@@ -168,4 +212,4 @@ jobs:
           trap 'rm -rf "$RUNNER_TEMP/evocrm-ssh"' EXIT
           printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/evocrm-ssh/key"
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/evocrm-ssh/known_hosts"
-          ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" < request.json
+          ssh -T -p "${DEPLOY_PORT:-22}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" < request.json

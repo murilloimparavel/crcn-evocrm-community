@@ -1,0 +1,26 @@
+name: Restricted deployment access check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  access:
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 5
+    steps:
+      - name: Verify restricted executor access
+        env:
+          DEPLOY_KEY: ${{ secrets.DEPLOY_EXECUTOR_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_EXECUTOR_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ vars.DEPLOY_EXECUTOR_HOST }}
+          DEPLOY_PORT: ${{ vars.DEPLOY_EXECUTOR_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS" && test -n "$DEPLOY_HOST"
+          umask 077
+          mkdir -p "$RUNNER_TEMP/evocrm-ssh"
+          trap 'rm -rf "$RUNNER_TEMP/evocrm-ssh"' EXIT
+          printf '%s\n' "$DEPLOY_KEY" > "$RUNNER_TEMP/evocrm-ssh/key"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/evocrm-ssh/known_hosts"
+          ssh -T -p "${DEPLOY_PORT:-22}" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/evocrm-ssh/known_hosts" -i "$RUNNER_TEMP/evocrm-ssh/key" "evocrm-deploy@$DEPLOY_HOST" access-check

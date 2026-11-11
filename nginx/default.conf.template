@@ -1,0 +1,506 @@
+# =============================================================================
+# Evo CRM Community — Nginx API Gateway
+# =============================================================================
+# Adapted from the production SaaS gateway configuration.
+# Routes all API traffic through a single domain, dispatching to internal
+# services by URL path.
+# =============================================================================
+
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=auth_sensitive:10m rate=30r/s;
+limit_req_zone $binary_remote_addr zone=api_general:10m rate=60r/m;
+
+server {
+    listen 3030;
+    server_name _;
+
+    # =============================================================================
+    # DNS resolver (Docker)
+    # =============================================================================
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # =============================================================================
+    # Upstream targets as variables
+    #
+    # Hosts/ports are rendered at container start by envsubst from the
+    # *_UPSTREAM env vars (see Dockerfile for defaults). Override them
+    # when the backend service names in your stack differ from the defaults.
+    # =============================================================================
+    set $auth_service        http://${AUTH_UPSTREAM};
+    set $evoai_service       http://${CORE_UPSTREAM};
+    set $crm_service         http://${CRM_UPSTREAM};
+    set $processor_service   http://${PROCESSOR_UPSTREAM};
+    set $bot_runtime_service http://${BOT_RUNTIME_UPSTREAM};
+
+    underscores_in_headers on;
+
+    access_log /var/log/nginx/access.log;
+    error_log /var/log/nginx/error.log;
+
+    client_max_body_size 100M;
+
+    # =============================================================================
+    # CORS is handled by each backend service via CORS_ORIGINS env var.
+    # The nginx gateway only handles CORS for services that don't manage
+    # their own CORS (setup routes, health checks, etc).
+    # =============================================================================
+
+    # =============================================================================
+    # Setup Wizard Routes → Auth Service
+    # =============================================================================
+    location ~ ^/setup {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # Super Admin Routes (v1)
+    # =============================================================================
+
+    # Super Admin routes that go to CRM Service
+    location ~ ^/api/v1/super_admin/(whitelabel|app_configs|upload|agent_bots|installation_configs|account_users) {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        client_max_body_size 100M;
+    }
+
+    # Super Admin catch-all → Auth Service
+    location ~ ^/api/v1/super_admin {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # Auth Service Routes
+    # =============================================================================
+
+    # OAuth Provider routes (Doorkeeper)
+    location ~ ^/oauth {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # OAuth well-known endpoints
+    location ~ ^/\.well-known {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # ActiveStorage blobs (avatar/profile images)
+    location ~ ^/rails/active_storage/ {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Auth endpoints
+    location ~ ^/api/v1/(auth|profile|users|mfa|features|plans|resource_actions|permissions|roles|custom_roles|oauth_applications|access_tokens|data_privacy|dynamic_oauth|active_plan|account) {
+        limit_req zone=auth_sensitive burst=20 nodelay;
+        limit_req_status 429;
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # POST /api/v1/accounts → Auth Service (account creation)
+    location ~ ^/api/v1/accounts$ {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Webhooks with accountId → CRM Service
+    location ~ ^/api/v1/accounts/[^/]+/webhooks {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        client_max_body_size 10M;
+    }
+
+    # GET/PATCH /api/v1/accounts/:id → Auth Service
+    location ~ ^/api/v1/accounts/[^/]+$ {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # Bot Runtime Routes
+    # =============================================================================
+    location ~ ^/api/v1/bot-runtime {
+        proxy_pass $bot_runtime_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 300;
+    }
+
+    # =============================================================================
+    # AI Processor Service Routes — Custom MCP Discover Tools (before EvoAI routes)
+    # =============================================================================
+    location ~ ^/api/v1/custom-mcp-servers/discover-tools {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # EvoAI Core Service Routes
+    # =============================================================================
+    # Agent-specific integration endpoints
+    location ~ ^/api/v1/agents/[^/]+/integrations/ {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    location ~ ^/api/v1/(agents|folders|mcp-servers|custom-mcp-servers|custom-tools) {
+        proxy_pass $evoai_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # AI Processor Service Routes
+    # =============================================================================
+
+    # Chat endpoints (including WebSocket) — needs longer timeout
+    # Anchored to the `chat` path segment so it does NOT swallow sibling CRM
+    # routes like /api/v1/chat_pages (which must fall through to $crm_service).
+    location ~ ^/api/v1/chat(/|$) {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+
+    # A2A Protocol endpoints
+    location ~ ^/api/v1/a2a {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+        proxy_set_header X-Api-Key $http_x_api_key;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # OAuth callback endpoints (universal)
+    location ~ ^/api/v1/integrations/[^/]+/callback {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Other Processor endpoints (sessions, tools, clients)
+    location ~ ^/api/v1/(sessions|tools|clients) {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # Webhook Routes → CRM Service
+    # =============================================================================
+    location ~ ^/(api/)?(rails/)?webhooks {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        # WhatsApp media chega base64 inline no webhook (Evolution) — 10M rejeitava
+        # documentos/PDF com 413. Alinha com o limite de 100M do resto do gateway (EVO-1966).
+        client_max_body_size 100M;
+    }
+
+    # =============================================================================
+    # ActionCable WebSocket (/cable)
+    # =============================================================================
+    location /cable {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400;
+    }
+
+    # =============================================================================
+    # Health Check Routes
+    # =============================================================================
+    location ~ ^/(health|ready|healthz|readyz)$ {
+        proxy_pass $processor_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        access_log off;
+    }
+
+    # Auth Service API v2 routes
+    location ~ ^/api/v2/accounts$ {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # Platform API routes
+    location ~ ^/platform/api/v1 {
+        proxy_pass $auth_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # CRM Service Routes (default — all other /api/v1/* paths)
+    # =============================================================================
+    location ~ ^/api/v1/ {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+
+    # =============================================================================
+    # Catch-all → CRM Service
+    # =============================================================================
+    location / {
+        proxy_pass $crm_service$request_uri;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_header api_access_token $http_api_access_token;
+        proxy_cookie_path / /;
+        proxy_set_header Cookie $http_cookie;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}

@@ -65,22 +65,36 @@ def run_hook(config, name, log, *arguments):
     subprocess.run(command + list(arguments), check=True, stdout=log, stderr=subprocess.STDOUT, timeout=1200)
 
 
-def execute(request, config, folder):
-    validate_request(request)
-    if config.get('enabled') is not True or config.get('baseline_approved') is not True:
-        raise ValueError('Production activation/baseline not approved')
+def require_current_main(config, request):
     # The host verifies main independently; CI cannot choose another Git remote.
     repository = Path(config['source_repository'])
     origin = subprocess.check_output(['git', '-C', str(repository), 'remote', 'get-url', 'origin'], text=True).strip()
     if origin != 'git@github.com:murilloimparavel/crcn-evocrm-community.git':
         raise ValueError('Unexpected source repository')
     subprocess.run(['git', '-C', str(repository), 'fetch', '--quiet', 'origin', 'main'], check=True, timeout=90)
-    def require_current_main():
-        subprocess.run(['git', '-C', str(repository), 'fetch', '--quiet', 'origin', 'main'], check=True, timeout=90)
-        main = subprocess.check_output(['git', '-C', str(repository), 'rev-parse', 'origin/main'], text=True).strip()
-        if main != request['release_sha']:
-            raise ValueError('Obsolete or non-main release')
-    require_current_main()
+    main = subprocess.check_output(['git', '-C', str(repository), 'rev-parse', 'origin/main'], text=True).strip()
+    if main != request['release_sha']:
+        raise ValueError('Obsolete or non-main release')
+
+
+def verify_candidate(request, folder, log):
+    for image in sorted(set(request['images'].values())):
+        subprocess.run(['docker', 'pull', image], check=True, stdout=log, stderr=subprocess.STDOUT, timeout=600)
+        revision = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}', image], text=True).strip()
+        if revision != request['release_sha']:
+            raise ValueError('Image revision does not match the approved main commit')
+    subprocess.run(['python3', str(STAGING / 'staging-cycle.py'), '--candidate', str(folder / 'candidate-request.json')],
+                   check=True, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
+    qa = json.loads((STAGING / 'cycle-result.json').read_text())
+    if not all(qa.get(k) is True for k in ('qa_passed', 'rollback_rehearsed', 'stopped')):
+        raise ValueError('Candidate migration/rollback QA did not pass')
+
+
+def execute(request, config, folder):
+    validate_request(request)
+    if config.get('enabled') is not True or config.get('baseline_approved') is not True:
+        raise ValueError('Production activation/baseline not approved')
+    require_current_main(config, request)
     state = folder / 'deployment-state.json'
     if state.exists() and json.loads(state.read_text()).get('phase') not in ('healthy', 'idle'):
         raise ValueError('Previous failed/interrupted deployment requires reconciliation')
@@ -113,21 +127,11 @@ def execute(request, config, folder):
             os.replace(temporary, state)
         drain_attempted = False
         try:
-            phase('verifying-images')
-            for image in sorted(set(request['images'].values())):
-                subprocess.run(['docker', 'pull', image], check=True, stdout=log, stderr=subprocess.STDOUT, timeout=600)
-                revision = subprocess.check_output(['docker', 'image', 'inspect', '--format', '{{index .Config.Labels "org.opencontainers.image.revision"}}', image], text=True).strip()
-                if revision != request['release_sha']:
-                    raise ValueError('Image revision does not match the approved main commit')
-            phase('staging')
-            subprocess.run(['python3', str(STAGING / 'staging-cycle.py'), '--candidate', str(request_path)],
-                           check=True, stdout=log, stderr=subprocess.STDOUT, timeout=1500)
-            qa = json.loads((STAGING / 'cycle-result.json').read_text())
-            if not all(qa.get(k) is True for k in ('qa_passed', 'rollback_rehearsed', 'stopped')):
-                raise ValueError('Candidate migration/rollback QA did not pass')
+            phase('candidate-qa')
+            verify_candidate(request, folder, log)
             # A separate verifier must confirm a restorable/offsite backup. Merely
             # starting a backup upload is not evidence of completion.
-            require_current_main()
+            require_current_main(config, request)
             phase('backup')
             run_hook(config, 'backup_command', log, request['release_sha'])
             run_hook(config, 'backup_verification_command', log, request['release_sha'])
@@ -136,7 +140,7 @@ def execute(request, config, folder):
             run_hook(config, 'drain_command', log)
             phase('migrating')
             run_hook(config, 'migration_command', log, str(candidate_path))
-            require_current_main()
+            require_current_main(config, request)
             phase('promoting')
             health = adapter.DockerHealth()
             def smoke():
@@ -170,6 +174,15 @@ def main():
     validate_request(request)
     with (ROOT / 'deployment.lock').open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if sys.argv[1:] == ['--rehearse']:
+            require_current_main(config, request)
+            (ROOT / 'candidate-request.json').write_text(json.dumps(request))
+            with (ROOT / 'rehearsal.private.log').open('a') as log:
+                verify_candidate(request, ROOT, log)
+            print(json.dumps({'release_sha': request['release_sha'], 'result': 'qa-passed-staging-stopped'}))
+            return
+        if len(sys.argv) != 1:
+            raise ValueError('Unsupported executor operation')
         execute(request, config, ROOT)
     print(json.dumps({'release_sha': request['release_sha'], 'result': 'healthy'}))
 

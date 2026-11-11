@@ -134,3 +134,24 @@ legada de outubro foi preservada em quarentena junto com o buffer; sem reenvio.
 Verificação final: quatro containers saudáveis, PostgreSQL e Redis sem reinício,
 HTTPS público 200, zero pendências legadas e duráveis na amostra e zero containers
 ativos no staging. O auto deploy da main continua desativado.
+
+## Acesso do Actions e ensaio antes da promoção
+
+O usuário SSH `evocrm-deploy` usa chave exclusiva guardada no Environment
+`production`, permitido exclusivamente para a branch `main`. A porta é 2244.
+A chave do servidor foi obtida pela conexão administrativa autenticada.
+O usuário recebe um comando forçado, sem terminal nem forwarding. O sudo
+permite somente o dispatcher instalado e pertencente ao root. Os comandos
+permitidos são consulta de acesso, ensaio e envio do manifesto de produção.
+
+O job `qa-on-vps` roda após os builds e scans. O host confere a main atual,
+os repositórios e os labels das imagens, executa migrações e contrato de rotas
+no staging sintético, ensaia o retorno e desliga o staging. A promoção depende
+desse job e da ativação explícita no GitHub e no arquivo privado do host.
+Uma operação assíncrona sem resultado confirmado restaura a configuração
+desejada e exige reconciliação dos jobs do Coolify antes de retomar workers.
+
+As referências do agregador correspondem às imagens já publicadas.
+A integração nas mains dos módulos depende de seus checks e aprovações.
+A ativação continua pendente da conciliação de todas as imagens de retorno
+e da instalação e validação dos hooks de produção.
