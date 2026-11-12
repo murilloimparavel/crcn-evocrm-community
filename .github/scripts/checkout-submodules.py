@@ -12,6 +12,37 @@ MODULES = (
     'evo-ai-processor-community', 'evo-ai-core-service-community', 'evo-bot-runtime',
     'evo-flow-community', 'evolution-api', 'evolution-go', 'crcn-search-api',
 )
+RELEASE_MODULES = (
+    'evo-auth-service-community', 'evo-ai-crm-community', 'evo-ai-core-service-community',
+    'evo-ai-processor-community', 'evo-bot-runtime', 'sofia-central-frontend',
+)
+
+
+def release_module_errors(environment, check_output=subprocess.check_output):
+    """Reject a release whose production image inputs are not the modules' current main heads."""
+    errors = []
+    release_sha = check_output(['git', 'rev-parse', 'HEAD'], text=True, env=environment).strip()
+    for module in RELEASE_MODULES:
+        remote = f'git@github-ci-{module}:murilloimparavel/{module}.git'
+        refs = check_output(['git', 'ls-remote', remote, 'refs/heads/main'],
+                            text=True, env=environment).splitlines()
+        remote_sha = refs[0].split()[0] if len(refs) == 1 and refs[0].split() else ''
+        if len(remote_sha) != 40 or any(char not in '0123456789abcdef' for char in remote_sha):
+            errors.append(f'{module}: could not resolve refs/heads/main')
+            continue
+        pinned_sha = check_output(['git', 'rev-parse', f'{release_sha}:{module}'],
+                                  text=True, env=environment).strip()
+        checked_out_sha = check_output(['git', '-C', module, 'rev-parse', 'HEAD'],
+                                       text=True, env=environment).strip()
+        if checked_out_sha != pinned_sha:
+            errors.append(f'{module}: checkout {checked_out_sha} differs from release gitlink {pinned_sha}')
+        if pinned_sha != remote_sha:
+            errors.append(f'{module}: release gitlink {pinned_sha} differs from module main {remote_sha}')
+    return errors
+
+
+def require_release_module_mains(environment):
+    return environment.get('REQUIRE_RELEASE_MODULE_MAINS') == 'true'
 
 
 def main():
@@ -53,6 +84,10 @@ def main():
         environment['GIT_SSH_COMMAND'] = 'ssh -F ' + shlex.quote(str(ssh_config))
         subprocess.run(['git', '-c', 'protocol.file.allow=never', 'submodule', 'update',
                         '--init', '--depth', '1', '--', *MODULES], env=environment, check=True)
+        if require_release_module_mains(os.environ):
+            errors = release_module_errors(environment)
+            if errors:
+                raise SystemExit('Release image inputs must match each module main:\n- ' + '\n- '.join(errors))
     print('Approved modules checked out; temporary private keys removed')
 
 

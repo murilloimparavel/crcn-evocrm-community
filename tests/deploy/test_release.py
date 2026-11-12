@@ -17,24 +17,50 @@ request = module('release_request', 'release-request.py')
 executor = module('release_executor', 'release-executor.py')
 
 class Requests(unittest.TestCase):
+    def write_artifacts(self, folder, sha, wrong_repository=None):
+        for name in request.MAP:
+            image_name = wrong_repository if wrong_repository and name == 'auth' else name
+            value = {
+                'component': name,
+                'image': 'ghcr.io/murilloimparavel/crcn-release-' + image_name + '@sha256:' + 'b' * 64,
+                'release_sha': sha,
+                'source_sha': request.pinned_source_sha(name, sha),
+                'source_repository': request.SOURCE_REPOSITORIES[name],
+            }
+            (folder / (name + '.json')).write_text(json.dumps(value))
+
     def test_aggregates_exact_scanned_components(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            for name in request.MAP:
-                (folder / (name + '.json')).write_text(json.dumps({name: 'ghcr.io/murilloimparavel/crcn-release-' + name + '@sha256:' + 'b' * 64}))
-            result = request.build(folder, 'a' * 40)
+            sha = request.subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=request.ROOT,
+                                         text=True, capture_output=True, check=True).stdout.strip()
+            self.write_artifacts(folder, sha)
+            result = request.build(folder, sha)
             executor.validate_request(result)
             self.assertEqual(len(result['images']), 9)
             self.assertEqual(result['images']['evocrm_crm'], result['images']['evocrm_crm_sidekiq'])
             (folder / 'extra.json').write_text('{}')
-            with self.assertRaises(ValueError): request.build(folder, 'a' * 40)
+            with self.assertRaises(ValueError): request.build(folder, sha)
 
     def test_rejects_other_component_repository(self):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory)
-            for name in request.MAP:
-                (folder / (name + '.json')).write_text(json.dumps({name: 'ghcr.io/murilloimparavel/crcn-release-wrong@sha256:' + 'b' * 64}))
-            with self.assertRaises(ValueError): request.build(folder, 'a' * 40)
+            sha = request.subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=request.ROOT,
+                                         text=True, capture_output=True, check=True).stdout.strip()
+            self.write_artifacts(folder, sha, wrong_repository='wrong')
+            with self.assertRaises(ValueError): request.build(folder, sha)
+
+    def test_rejects_artifact_from_other_source_revision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            sha = request.subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=request.ROOT,
+                                         text=True, capture_output=True, check=True).stdout.strip()
+            self.write_artifacts(folder, sha)
+            artifact = json.loads((folder / 'frontend.json').read_text())
+            artifact['source_sha'] = 'c' * 40
+            (folder / 'frontend.json').write_text(json.dumps(artifact))
+            with self.assertRaisesRegex(ValueError, 'source differs'):
+                request.build(folder, sha)
 
     def test_rejects_command_injection_fields(self):
         data = {'schema_version': 1, 'release_sha': 'a' * 40, 'images': {}, 'command': ['sh']}
