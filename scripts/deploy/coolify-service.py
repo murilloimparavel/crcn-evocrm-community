@@ -228,8 +228,23 @@ def _promote(client, release, health, smoke, state_dir):
         stream.flush()
         os.fsync(stream.fileno())
     previous_doc = yaml.safe_load(previous)
+    candidate_doc = yaml.safe_load(release['candidate_compose'])
     previous_images = {s: previous_doc['services'][s]['image'] for s in REQUIRED}
-    changed = {name for name in REQUIRED if previous_images[name] != release['images'][name]}
+    if not isinstance(candidate_doc, dict) or not isinstance(candidate_doc.get('services'), dict):
+        raise DeploymentError('Invalid candidate Compose')
+    if set(candidate_doc['services']) != set(previous_doc['services']):
+        raise DeploymentError('Candidate changes the service set')
+    if {k: v for k, v in candidate_doc.items() if k != 'services'} != {
+        k: v for k, v in previous_doc.items() if k != 'services'
+    }:
+        raise DeploymentError('Candidate changes shared Compose configuration')
+    if any(candidate_doc['services'][s] != previous_doc['services'][s]
+           for s in set(previous_doc['services']) - REQUIRED):
+        raise DeploymentError('Candidate changes a non-application service')
+    if any(candidate_doc['services'][s].get('image') != release['images'][s] for s in REQUIRED):
+        raise DeploymentError('Candidate images differ from the release manifest')
+    changed = {name for name in REQUIRED
+               if previous_doc['services'][name] != candidate_doc['services'][name]}
     if not changed:
         health.wait(previous_images)
         smoke()
