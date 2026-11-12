@@ -178,7 +178,10 @@ jobs:
 
   promote:
     needs: [images, qa-on-vps]
-    if: vars.PRODUCTION_DEPLOY_ENABLED == 'true'
+    if: >-
+      vars.PRODUCTION_DEPLOY_ENABLED == 'true' &&
+      needs.images.result == 'success' &&
+      needs.qa-on-vps.result == 'success'
     environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 85
