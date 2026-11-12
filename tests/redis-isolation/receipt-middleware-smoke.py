@@ -24,8 +24,9 @@ def run(args, *, check=True, timeout=180, capture=False):
                             stderr=subprocess.PIPE if capture else subprocess.DEVNULL)
     if check and result.returncode:
         if capture:
+            output = (result.stdout or "") + "\n" + (result.stderr or "")
             detail = re.sub(r"(?i)(password|secret|token|api[_-]?key)(\s*[=:]\s*)\S+",
-                            r"\1\2[redacted]", result.stderr or "")
+                            r"\1\2[redacted]", output)
             print("Disposable command failed:", " ".join(args[:8]), file=sys.stderr)
             print(detail[-1800:], file=sys.stderr)
         raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
@@ -45,6 +46,8 @@ def main():
     ]
     if not all((source / name).is_file() for name in required):
         raise RuntimeError("Receipt implementation files are incomplete")
+    if not (source / "spec/lib/sidekiq_completion_receipt_middleware_spec.rb").is_file():
+        raise RuntimeError("Receipt middleware spec is missing")
 
     tag = "receiptqa" + uuid.uuid4().hex[:10]
     names = {key: tag + "-" + key for key in ("network", "postgres", "redis", "app", "worker")}
@@ -62,6 +65,7 @@ def main():
              "redis:alpine"])
         run(["docker", "run", "-d", "--name", names["app"], "--network", names["network"],
              "-v", str(temp) + ":/receipt-test:rw", "-e", "RAILS_ENV=test",
+             "-v", str(source / "spec") + ":/rails/spec:ro",
              "-e", "POSTGRES_HOST=" + names["postgres"], "-e", "POSTGRES_PORT=5432",
              "-e", "POSTGRES_DATABASE=evo_auth_service_test", "-e", "POSTGRES_USERNAME=postgres",
              "-e", "POSTGRES_PASSWORD=postgres", "-e", "REDIS_URL=redis://" + names["redis"] + ":6379/3",
@@ -87,6 +91,10 @@ def main():
                        timeout=timeout, capture=capture)
 
         app("rails", "db:prepare")
+        specs = app("rspec", "spec/lib/sidekiq_completion_receipt_middleware_spec.rb")
+        if "4 examples, 0 failures" not in specs.stdout:
+            raise RuntimeError("Receipt middleware specs did not pass: " + specs.stdout[-800:])
+        print("Disposable Auth RSpec: PASS (4 examples)", flush=True)
         script = temp / "direct.rb"
         script.write_text('''
 job = {"jid"=>"durable-receipt-test", "class"=>"ActiveJob::QueueAdapters::SidekiqAdapter::JobWrapper", "wrapped"=>"Licensing::HeartbeatJob", "args"=>[{"job_class"=>"Licensing::HeartbeatJob", "arguments"=>[]}]}
