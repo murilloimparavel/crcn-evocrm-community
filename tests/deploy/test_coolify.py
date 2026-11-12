@@ -60,6 +60,39 @@ class Adapter(unittest.TestCase):
         a.promote(self.client,self.release,self.health,self.smoke,self.private_dir)
         self.client.set_compose.assert_called_once_with(self.release['candidate_compose'])
         self.health.wait.assert_called_once_with(self.images);self.smoke.assert_called_once()
+    def test_environment_only_change_is_deployed_and_smoke_checked(self):
+        release=a.plan(self.current,self.old)
+        candidate=yaml.safe_load(release['candidate_compose'])
+        candidate['services']['evocrm_auth']['environment']['REDIS_URL']='redis://redis/3'
+        release['candidate_compose']=yaml.safe_dump(candidate)
+        self.client.application_only=True
+        a.promote(self.client,release,self.health,self.smoke,self.private_dir)
+        self.client.set_compose.assert_called_once_with(release['candidate_compose'])
+        self.client.start_application.assert_called_once_with('evocrm_auth')
+        self.smoke.assert_called_once()
+    def test_rejects_candidate_changes_to_datastores(self):
+        previous=yaml.safe_load(self.current)
+        previous['services']['redis']={'image':'redis:alpine'}
+        self.current=yaml.safe_dump(previous)
+        self.client.current.return_value=self.current
+        release=a.plan(self.current,self.old)
+        candidate=yaml.safe_load(release['candidate_compose'])
+        candidate['services']['redis']['image']='redis:other'
+        release['candidate_compose']=yaml.safe_dump(candidate)
+        with self.assertRaisesRegex(a.DeploymentError,'non-application'):
+            a.promote(self.client,release,self.health,self.smoke,self.private_dir)
+        self.client.set_compose.assert_not_called()
+    def test_environment_only_smoke_failure_restores_previous_configuration(self):
+        release=a.plan(self.current,self.old)
+        candidate=yaml.safe_load(release['candidate_compose'])
+        candidate['services']['evocrm_auth']['environment']['REDIS_URL']='redis://redis/3'
+        release['candidate_compose']=yaml.safe_dump(candidate)
+        self.client.application_only=True
+        self.smoke.side_effect=RuntimeError('smoke failed')
+        with self.assertRaisesRegex(a.DeploymentError,'restored and verified'):
+            a.promote(self.client,release,self.health,self.smoke,self.private_dir)
+        self.assertEqual(self.client.set_compose.call_args_list[-1].args[0],self.current)
+        self.assertEqual(self.client.start_application.call_count,2)
     def test_health_failure_restores_application(self):
         self.health.wait.side_effect=[a.DeploymentError('unhealthy'),None]
         with self.assertRaisesRegex(a.DeploymentError,'restored and verified'):

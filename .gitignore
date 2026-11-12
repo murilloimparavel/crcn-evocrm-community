@@ -6,3 +6,5 @@ log/
 tmp/
 storage/
 /evo-nexus/
+__pycache__/
+*.py[cod]
