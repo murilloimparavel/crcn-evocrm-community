@@ -35,6 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+          REQUIRE_RELEASE_MODULE_MAINS: 'true'
         run: python3 .github/scripts/checkout-submodules.py
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
@@ -62,24 +63,31 @@ jobs:
           - name: auth
             context: evo-auth-service-community
             dockerfile: evo-auth-service-community/Dockerfile
+            source_repository: https://github.com/murilloimparavel/evo-auth-service-community
           - name: crm
             context: evo-ai-crm-community
             dockerfile: evo-ai-crm-community/docker/Dockerfile
+            source_repository: https://github.com/murilloimparavel/evo-ai-crm-community
           - name: core
             context: evo-ai-core-service-community
             dockerfile: evo-ai-core-service-community/Dockerfile
+            source_repository: https://github.com/murilloimparavel/evo-ai-core-service-community
           - name: processor
             context: evo-ai-processor-community
             dockerfile: evo-ai-processor-community/Dockerfile
+            source_repository: https://github.com/murilloimparavel/evo-ai-processor-community
           - name: runtime
             context: evo-bot-runtime
             dockerfile: evo-bot-runtime/Dockerfile
+            source_repository: https://github.com/murilloimparavel/evo-bot-runtime
           - name: frontend
             context: sofia-central-frontend
             dockerfile: sofia-central-frontend/Dockerfile
+            source_repository: https://github.com/murilloimparavel/sofia-central-frontend
           - name: gateway
             context: nginx
             dockerfile: nginx/Dockerfile
+            source_repository: https://github.com/murilloimparavel/crcn-evocrm-community
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -89,6 +97,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SUBMODULES_SSH_KEYS: ${{ secrets.SUBMODULES_SSH_KEYS }}
+          REQUIRE_RELEASE_MODULE_MAINS: 'true'
         run: python3 .github/scripts/checkout-submodules.py
       - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2
       - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772
@@ -96,6 +105,23 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify exact component source revision
+        id: source
+        env:
+          COMPONENT: ${{ matrix.name }}
+          SOURCE_PATH: ${{ matrix.context }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          if [[ "$COMPONENT" == gateway ]]; then
+            source_sha="$RELEASE_SHA"
+          else
+            source_sha="$(git -C "$SOURCE_PATH" rev-parse HEAD)"
+            pinned_sha="$(git rev-parse "$RELEASE_SHA:$SOURCE_PATH")"
+            test "$source_sha" = "$pinned_sha"
+          fi
+          echo "revision=$source_sha" >> "$GITHUB_OUTPUT"
       - name: Build immutable candidate
         id: build
         uses: docker/build-push-action@14487ce63c7a62a4a324b0bfb37086795e31c6c1
@@ -104,10 +130,13 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
           push: true
-          build-args: GIT_SHA=${{ github.event.workflow_run.head_sha }}
+          build-args: GIT_SHA=${{ steps.source.outputs.revision }}
           provenance: mode=max
           sbom: true
-          labels: org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ matrix.source_repository }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
+            io.crcn.component.revision=${{ steps.source.outputs.revision }}
           tags: ghcr.io/murilloimparavel/crcn-release-${{ matrix.name }}:sha-${{ github.event.workflow_run.head_sha }}
           cache-from: type=gha,scope=release-${{ matrix.name }}
           cache-to: type=gha,scope=release-${{ matrix.name }},mode=max
@@ -115,9 +144,12 @@ jobs:
         env:
           COMPONENT: ${{ matrix.name }}
           DIGEST: ${{ steps.build.outputs.digest }}
+          RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_SHA: ${{ steps.source.outputs.revision }}
+          SOURCE_REPOSITORY: ${{ matrix.source_repository }}
         run: |
           mkdir -p candidate
-          python3 -c 'import json,os; n=os.environ["COMPONENT"]; json.dump({n:"ghcr.io/murilloimparavel/crcn-release-"+n+"@"+os.environ["DIGEST"]},open("candidate/"+n+".json","w"))'
+          python3 -c 'import json,os; n=os.environ["COMPONENT"]; json.dump({"component":n,"image":"ghcr.io/murilloimparavel/crcn-release-"+n+"@"+os.environ["DIGEST"],"release_sha":os.environ["RELEASE_SHA"],"source_sha":os.environ["SOURCE_SHA"],"source_repository":os.environ["SOURCE_REPOSITORY"]},open("candidate/"+n+".json","w"))'
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: candidate-${{ matrix.name }}
@@ -132,9 +164,7 @@ jobs:
           ignore-unfixed: false
   qa-on-vps:
     needs: images
-    if: >-
-      always() && !cancelled() &&
-      (needs.images.result == 'success' || needs.images.result == 'failure')
+    if: needs.images.result == 'success'
     environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 85
