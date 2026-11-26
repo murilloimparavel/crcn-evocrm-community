@@ -52,3 +52,9 @@ Revise as mudanças antes de registrar os novos commits. Desenvolva e publique c
 - Não adicione `.env`, credenciais, dumps de produção ou dados pessoais.
 - Cada módulo mantém seu histórico, permissões e fluxo de revisão próprios.
 - Os submódulos apontam somente para repositórios `murilloimparavel`.
+
+## Publicação em produção
+
+O fluxo aprovado, seus gates e os bloqueios atuais estão descritos em
+[Fluxo de publicação e deploy](docs/PRODUCTION-DEPLOYMENT.md). Não faça
+promoção manual por SSH ou API fora desse processo.
