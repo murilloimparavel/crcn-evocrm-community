@@ -43,3 +43,27 @@ ensaiados. Até essa implementação ser revisada, mantenha a promoção desliga
 O workflow de verificação de acesso (`deploy-access-check.yml`) comprova somente
 que o transporte ao executor restrito funciona. Ele não aprova uma release e
 não implanta serviços.
+
+## Repull seletivo do CRM (preparado, desativado)
+
+O workflow `crm-repull.yml` recebe o SHA completo do CRM e o digest aprovado da
+imagem, exige execução a partir da `main`, Environment `production` e a variável
+`CRM_REPULL_ENABLED=true`. O executor instalado no host também exige os gates
+`crm_repull_enabled` e `crm_repull_rehearsed`. O exemplo de configuração mantém
+ambos falsos. Não os habilite antes de revisar o executor, instalá-lo pelo
+procedimento restrito e ensaiar no staging os mesmos hooks e imagens.
+
+O executor usa o lock da stack, confere `latest` contra a tag de SHA e o digest
+aprovado, verifica a configuração e os containers, executa hooks de backup,
+restore de storage, compatibilidade de schema e drain, e recria apenas CRM e
+Sidekiq com Compose síncrono e sem pull adicional. O Compose do Coolify mantém
+`latest`. Em falha de saúde ou smoke, restaura a imagem anterior na tag local e
+verifica a recuperação. Falha ou timeout do comando de recriação exige
+reconciliação, pois o resultado pode ser ambíguo. Nunca reverte o banco.
+
+Os hooks são configurados no host em listas argv root-owned. O exemplo não
+contém implementações de compatibilidade, storage, drain ou smoke: devem ser
+escritas e ensaiadas antes da ativação. O backup existente de MinIO é na mesma
+VPS e não constitui cópia externa. O snapshot de storage deve ser verificado e
+sua consistência com o banco tratada pelo operador. As verificações de saúde não
+substituem teste funcional autenticado da pipeline.

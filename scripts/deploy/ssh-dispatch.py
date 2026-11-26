@@ -12,6 +12,8 @@ if sys.argv[1:] == ['access-check']:
     config = json.loads((ROOT / 'config.json').read_text())
     print(json.dumps({'access': 'restricted-executor', 'enabled': config.get('enabled') is True,
                       'baseline_approved': config.get('baseline_approved') is True}))
+elif sys.argv[1:] == ['crm-repull']:
+    os.execv('/usr/bin/python3', ['python3', str(ROOT / 'bin/crm-repull-executor.py')])
 elif sys.argv[1:] == ['rehearse']:
     os.execv('/usr/bin/python3', ['python3', str(ROOT / 'bin/release-executor.py'), '--rehearse'])
 elif len(sys.argv) == 1:
