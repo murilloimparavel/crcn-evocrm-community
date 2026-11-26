@@ -43,3 +43,46 @@ ensaiados. Até essa implementação ser revisada, mantenha a promoção desliga
 O workflow de verificação de acesso (`deploy-access-check.yml`) comprova somente
 que o transporte ao executor restrito funciona. Ele não aprova uma release e
 não implanta serviços.
+
+## Repull seletivo do CRM (preparado, desativado)
+
+O workflow `crm-repull.yml` recebe o SHA completo do CRM e o digest aprovado da
+imagem, exige execução a partir da `main`, Environment `production` e a variável
+`CRM_REPULL_ENABLED=true`. O executor instalado no host também exige os gates
+`crm_repull_enabled` e `crm_repull_rehearsed`. O exemplo de configuração mantém
+ambos falsos. Não os habilite antes de revisar o executor, instalá-lo pelo
+procedimento restrito e ensaiar no staging os mesmos hooks e imagens.
+
+O executor usa o lock da stack, confere `latest` contra a tag de SHA e o digest
+aprovado, verifica a configuração e os containers, executa hooks de backup,
+restore de storage, compatibilidade de schema e drain, e recria apenas CRM e
+Sidekiq com Compose síncrono e sem pull adicional. O Compose do Coolify mantém
+`latest`. Em falha de saúde ou smoke, restaura a imagem anterior na tag local e
+verifica a recuperação. Falha ou timeout do comando de recriação exige
+reconciliação, pois o resultado pode ser ambíguo. Nunca reverte o banco.
+
+Os hooks são configurados no host em listas argv root-owned. O exemplo não
+contém implementações de compatibilidade, storage, drain ou smoke: devem ser
+escritas e ensaiadas antes da ativação. O backup existente de MinIO é na mesma
+VPS e não constitui cópia externa. O snapshot de storage deve ser verificado e
+sua consistência com o banco tratada pelo operador. As verificações de saúde não
+substituem teste funcional autenticado da pipeline.
+
+### Situação da implementação
+
+O PR #15 reúne uma primeira versão do executor e do workflow. Os testes locais
+cobrem comparação de digest, divergência de imagens, falha no smoke e timeout
+na recriação. Os testes usam simulações e não comprovam o comportamento do
+Docker ou Coolify de produção. A integração exige ainda:
+
+- Implementar e validar os hooks root-owned de storage, compatibilidade de
+  schema, drain, retomada e smoke autenticado, com backup e restauração recentes.
+- Ensaiar promoção e rollback das imagens reais em staging, inclusive timeout,
+  falha parcial, mudança concorrente e retomada das filas.
+- Revisar o uso da tag local `latest`, o resultado de `docker compose up` e o
+  mecanismo de reconciliação antes de instalar o executor e o dispatcher.
+- Configurar o Environment de produção e os gates apenas após revisão e ensaio.
+
+Até então, `CRM_REPULL_ENABLED`, `crm_repull_enabled` e
+`crm_repull_rehearsed` devem permanecer desativados. Não há evidência de que o
+executor desta versão tenha sido instalado ou executado na VPS.

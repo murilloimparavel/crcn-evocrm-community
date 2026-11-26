@@ -9,5 +9,13 @@
   "drain_command": [],
   "resume_command": [],
   "migration_command": [],
-  "smoke_command": []
+  "smoke_command": [],
+  "crm_repull_enabled": false,
+  "crm_repull_rehearsed": false,
+  "crm_repull_storage_verification_command": [],
+  "crm_repull_compatibility_command": [],
+  "crm_repull_drain_command": [],
+  "crm_repull_resume_command": [],
+  "crm_repull_smoke_command": [],
+  "crm_repull_rollback_smoke_command": []
 }
