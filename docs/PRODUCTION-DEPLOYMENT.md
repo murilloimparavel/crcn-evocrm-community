@@ -67,3 +67,22 @@ escritas e ensaiadas antes da ativação. O backup existente de MinIO é na mesm
 VPS e não constitui cópia externa. O snapshot de storage deve ser verificado e
 sua consistência com o banco tratada pelo operador. As verificações de saúde não
 substituem teste funcional autenticado da pipeline.
+
+### Situação da implementação
+
+O PR #15 reúne uma primeira versão do executor e do workflow. Os testes locais
+cobrem comparação de digest, divergência de imagens, falha no smoke e timeout
+na recriação. Os testes usam simulações e não comprovam o comportamento do
+Docker ou Coolify de produção. A integração exige ainda:
+
+- Implementar e validar os hooks root-owned de storage, compatibilidade de
+  schema, drain, retomada e smoke autenticado, com backup e restauração recentes.
+- Ensaiar promoção e rollback das imagens reais em staging, inclusive timeout,
+  falha parcial, mudança concorrente e retomada das filas.
+- Revisar o uso da tag local `latest`, o resultado de `docker compose up` e o
+  mecanismo de reconciliação antes de instalar o executor e o dispatcher.
+- Configurar o Environment de produção e os gates apenas após revisão e ensaio.
+
+Até então, `CRM_REPULL_ENABLED`, `crm_repull_enabled` e
+`crm_repull_rehearsed` devem permanecer desativados. Não há evidência de que o
+executor desta versão tenha sido instalado ou executado na VPS.
