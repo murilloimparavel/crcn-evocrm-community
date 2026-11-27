@@ -38,14 +38,18 @@ class Executor(unittest.TestCase):
             executor.execute(self.request, {}, self.client, self.folder)
         inspect.assert_not_called()
 
-    def invoke(self, smoke_failure=False, compose_failure=False):
+    def invoke(self, smoke_failure=False, compose_failure=False, drain_failure=False, rollback_resume_failure=False):
         def run(args, timeout=120, output=False):
             if args[:3] == ['docker', 'image', 'inspect']:
                 return self.new + '\n'
             return None
         def hook(config, name, log, *args):
+            if drain_failure and name == 'crm_repull_drain_command':
+                raise subprocess.CalledProcessError(1, 'drain')
+            if rollback_resume_failure and name == 'crm_repull_resume_command':
+                raise subprocess.CalledProcessError(1, 'resume')
             if smoke_failure and name == 'crm_repull_smoke_command':
-                raise RuntimeError('smoke failed')
+                raise subprocess.CalledProcessError(1, 'smoke')
         with patch.object(executor, 'inspect', side_effect=lambda n: self.states[n]), \
              patch.object(executor, 'run', side_effect=run), \
              patch.object(executor, 'digest_for', return_value=self.digest), \
@@ -66,6 +70,16 @@ class Executor(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'restored and verified'):
             self.invoke(smoke_failure=True)
         self.assertEqual(json.loads((self.folder / 'crm-repull-state.json').read_text())['phase'], 'rolled-back')
+
+    def test_partial_drain_requires_reconciliation(self):
+        with self.assertRaises(executor.ReconciliationRequired):
+            self.invoke(drain_failure=True)
+        self.assertEqual(json.loads((self.folder / 'crm-repull-state.json').read_text())['phase'], 'reconciliation-required')
+
+    def test_failed_resume_after_rollback_requires_reconciliation(self):
+        with self.assertRaises(executor.ReconciliationRequired):
+            self.invoke(smoke_failure=True, rollback_resume_failure=True)
+        self.assertEqual(json.loads((self.folder / 'crm-repull-state.json').read_text())['phase'], 'reconciliation-required')
 
     def test_timed_out_start_requires_reconciliation(self):
         with self.assertRaises(executor.ReconciliationRequired):
