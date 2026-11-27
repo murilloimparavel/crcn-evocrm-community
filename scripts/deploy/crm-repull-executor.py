@@ -141,7 +141,14 @@ def execute(request, config, client, folder):
                  'target_image_id': target, 'rollback_tag': rollback_tag,
                  'compose_sha256': candidate['compose_sha256']}
         write_state(state_path, state)
-        release.run_hook(config, 'crm_repull_drain_command', log)
+        state['phase'] = 'draining'
+        write_state(state_path, state)
+        try:
+            release.run_hook(config, 'crm_repull_drain_command', log)
+        except Exception:
+            state['phase'] = 'reconciliation-required'
+            write_state(state_path, state)
+            raise ReconciliationRequired('Worker drain outcome requires reconciliation') from None
         state['phase'] = 'deploying'
         write_state(state_path, state)
         try:
@@ -150,7 +157,10 @@ def execute(request, config, client, folder):
             wait_healthy(target, {name: states[name]['container_id'] for name in SERVICES})
             if hashlib.sha256(client.current().encode()).hexdigest() != candidate['compose_sha256']:
                 raise ReconciliationRequired('Coolify configuration drifted during deployment')
-            release.run_hook(config, 'crm_repull_smoke_command', log, request['source_sha'])
+            try:
+                release.run_hook(config, 'crm_repull_smoke_command', log, request['source_sha'])
+            except subprocess.CalledProcessError as error:
+                raise RuntimeError('Confirmed smoke check failure') from error
             release.run_hook(config, 'crm_repull_resume_command', log)
             state['phase'] = 'healthy'
             write_state(state_path, state)
@@ -174,7 +184,12 @@ def execute(request, config, client, folder):
                 state['phase'] = 'reconciliation-required'
                 write_state(state_path, state)
                 raise ReconciliationRequired('Rollback failed or its outcome is uncertain') from None
-            release.run_hook(config, 'crm_repull_resume_command', log)
+            try:
+                release.run_hook(config, 'crm_repull_resume_command', log)
+            except Exception:
+                state['phase'] = 'reconciliation-required'
+                write_state(state_path, state)
+                raise ReconciliationRequired('Worker resume after rollback requires reconciliation') from None
             state['phase'] = 'rolled-back'
             write_state(state_path, state)
             raise RuntimeError('Deployment failed; prior CRM image restored and verified') from None
