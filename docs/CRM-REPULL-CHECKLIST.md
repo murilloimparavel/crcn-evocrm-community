@@ -9,7 +9,7 @@ Estado: desenvolvimento. Executor não instalado e gates de produção desativad
 - [x] Corrigir caminho de rollback para falha confirmada do smoke, usando o mesmo tipo de exceção do subprocesso.
 - [x] Registrar reconciliação se o drain falhar ou se a retomada após rollback falhar.
 - [x] Testar localmente falha do smoke, timeout de recriação e falhas de drain e retomada.
-- [ ] Revisar CI e integrar a correção na main.
+- [x] Revisar CI e integrar a correção na main. PR #16, merge `0c25bdbb755113aa5bac527ab955b2541c5c1e83`.
 - [ ] Cobrir falha parcial de recriação, drift concorrente e interrupções adicionais antes da ativação.
 
 ## Sprint 2: hooks e isolamento de staging
@@ -46,4 +46,4 @@ Estado: desenvolvimento. Executor não instalado e gates de produção desativad
 
 - PR #15 integrou o executor inicial e manteve os gates desligados.
 - A baseline do staging passou em migrations e saúde; o ciclo não ensaiou rollback.
-- A Sprint 1 foi testada localmente; a execução real de staging ainda está pendente.
+- Sprint 1: PR #16 passou no CI e foi integrado em `0c25bdbb755113aa5bac527ab955b2541c5c1e83`; os testes do executor passaram localmente. Execução real de staging continua pendente.
